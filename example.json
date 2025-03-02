@@ -1,0 +1,126 @@
+{
+    "meta": {
+        "version": "1.0.0",
+        "created_at": "2025-03-02T21:39:16+02:00",
+        "last_updated": "2025-03-02T21:39:16+02:00",
+        "chunk_size": 1000,
+        "total_records": 2
+    },
+    "schema": {
+        "User": {
+            "fields": {
+                "id": {"type": "integer", "primary_key": true, "auto_increment": true},
+                "username": {"type": "string", "unique": true, "index": true},
+                "email": {"type": "string", "unique": true},
+                "age": {"type": "integer", "index": true},
+                "is_active": {"type": "boolean", "default": true},
+                "created_at": {"type": "datetime", "default": "now()"}
+            },
+            "relationships": {
+                "posts": {"type": "one_to_many", "model": "Post", "back_populates": "author"},
+                "profile": {"type": "one_to_one", "model": "UserProfile", "back_populates": "user"}
+            },
+            "indexes": {
+                "idx_username": ["username"],
+                "idx_email": ["email"],
+                "idx_age": ["age"]
+            }
+        },
+        "Post": {
+            "fields": {
+                "id": {"type": "integer", "primary_key": true, "auto_increment": true},
+                "title": {"type": "string", "index": true},
+                "content": {"type": "string"},
+                "views": {"type": "integer", "default": 0},
+                "author_id": {"type": "integer", "foreign_key": "User.id"},
+                "created_at": {"type": "datetime", "default": "now()"}
+            },
+            "relationships": {
+                "author": {"type": "many_to_one", "model": "User", "back_populates": "posts"},
+                "tags": {"type": "many_to_many", "model": "Tag", "through": "PostTag"}
+            }
+        }
+    },
+    "indexes": {
+        "User": {
+            "username": {
+                "type": "hash",
+                "values": {
+                    "john_doe": "chunks/users/chunk_0.json#1",
+                    "jane_doe": "chunks/users/chunk_0.json#2"
+                }
+            },
+            "age": {
+                "type": "btree",
+                "values": {
+                    "25": ["chunks/users/chunk_0.json#2"],
+                    "30": ["chunks/users/chunk_0.json#1"]
+                }
+            }
+        }
+    },
+    "chunks": {
+        "User": {
+            "current_chunk": 0,
+            "total_chunks": 1,
+            "chunks": {
+                "0": "chunks/users/chunk_0.json"
+            }
+        },
+        "Post": {
+            "current_chunk": 0,
+            "total_chunks": 1,
+            "chunks": {
+                "0": "chunks/posts/chunk_0.json"
+            }
+        }
+    }
+}
+
+// chunks/users/chunk_0.json
+{
+    "meta": {
+        "model": "User",
+        "chunk_id": 0,
+        "records": 2,
+        "next_chunk": null
+    },
+    "records": {
+        "1": {
+            "id": 1,
+            "username": "john_doe",
+            "email": "john@example.com",
+            "age": 30,
+            "is_active": true,
+            "created_at": "2025-03-02T21:39:16+02:00"
+        },
+        "2": {
+            "id": 2,
+            "username": "jane_doe",
+            "email": "jane@example.com",
+            "age": 25,
+            "is_active": true,
+            "created_at": "2025-03-02T21:39:16+02:00"
+        }
+    }
+}
+
+// chunks/posts/chunk_0.json
+{
+    "meta": {
+        "model": "Post",
+        "chunk_id": 0,
+        "records": 1,
+        "next_chunk": null
+    },
+    "records": {
+        "1": {
+            "id": 1,
+            "title": "First Post",
+            "content": "Hello World!",
+            "views": 0,
+            "author_id": 1,
+            "created_at": "2025-03-02T21:39:16+02:00"
+        }
+    }
+}
