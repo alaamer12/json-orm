@@ -1,105 +1,85 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Type, TypeVar, Any
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
+from typing import Any, Dict, List, Type, TypeVar
 
 from .model import Model
-from .storage import ChunkManager
-from .index import IndexManager
-from .transaction import TransactionManager
-from .exceptions import JsonDBError
 
-T = TypeVar("T", bound=Model)
+T = TypeVar('T')
+
 
 class Database:
-    def __init__(
-        self, 
-        path: str, 
-        chunk_size: int = 1000,
-        create_if_missing: bool = True
-    ):
-        self.base_path = Path(path)
-        self._setup_directories(create_if_missing)
-        
-        self.chunk_manager = ChunkManager(chunk_size)
-        self.index_manager = IndexManager(self.index_path)
-        self.transaction_manager = TransactionManager(self.meta_path)
-        
-        self._initialize_db()
-    
-    def _setup_directories(self, create_if_missing: bool) -> None:
-        """Setup database directory structure."""
-        self.data_path = self.base_path / "data"
-        self.index_path = self.base_path / "indexes"
-        self.meta_path = self.base_path / "meta"
-        
-        if create_if_missing:
-            self.data_path.mkdir(parents=True, exist_ok=True)
-            self.index_path.mkdir(parents=True, exist_ok=True)
-            self.meta_path.mkdir(parents=True, exist_ok=True)
-    
-    def _initialize_db(self) -> None:
-        """Initialize database state."""
-        self.tables: Dict[str, Type[Model]] = {}
-        self.metadata = self._load_metadata()
-    
-    def _load_metadata(self) -> Dict:
-        """Load database metadata."""
-        meta_file = self.meta_path / "metadata.json"
-        if meta_file.exists():
-            with meta_file.open() as f:
-                return json.load(f)
-        return {"version": 1, "tables": {}}
-    
+    """Main database class."""
+
+    def __init__(self, filename: str):
+        self.filename = filename
+        self._data: Dict[str, List[Dict[str, Any]]] = {}
+        self._load()
+
+    def _load(self):
+        """Load data from file."""
+        try:
+            with open(self.filename, 'r') as f:
+                self._data = json.load(f)
+        except FileNotFoundError:
+            self._data = {}
+
+    def _save(self):
+        """Save data to file."""
+        with open(self.filename, 'w') as f:
+            json.dump(self._data, f, indent=2)
+
     @contextmanager
     def transaction(self):
-        """Start a new transaction."""
-        transaction = self.transaction_manager.begin()
+        """Transaction context manager."""
         try:
-            yield transaction
-            self.transaction_manager.commit(transaction)
-        except Exception as e:
-            self.transaction_manager.rollback(transaction)
-            raise JsonDBError(f"Transaction failed: {str(e)}")
-    
-    def add(self, model: Model) -> None:
-        """Add a model instance to the database."""
-        table = model.__class__.__name__
-        if table not in self.tables:
-            self.tables[table] = type(model)
-        
-        data = model.dict()
-        self.chunk_manager.add_record(table, data)
-        self.index_manager.update_indexes(table, data)
-    
-    def bulk_insert(self, model_class: Type[T], records: List[Dict]) -> None:
-        """Bulk insert records."""
-        with self.transaction() as transaction:
-            for record in records:
-                instance = model_class(**record)
-                self.add(instance)
-                transaction.add_operation({
-                    "type": "insert",
-                    "table": model_class.__name__,
-                    "data": record
-                })
-    
-    def query(self, model_class: Type[T]) -> "QueryBuilder":
-        """Create a new query builder for the model."""
-        from .query import QueryBuilder
-        return QueryBuilder(self, model_class)
-    
-    def migrate_to_sqlmodel(self, engine) -> None:
-        """Migrate database to SQLModel."""
-        from sqlmodel import SQLModel
-        
-        # Create tables
-        SQLModel.metadata.create_all(engine)
-        
-        # Migrate data
-        for table_name, model_class in self.tables.items():
-            records = self.query(model_class).all()
-            with engine.begin() as conn:
-                for record in records:
-                    stmt = model_class.__table__.insert().values(**record.dict())
-                    conn.execute(stmt)
+            yield
+            self._save()
+        except Exception:
+            # Rollback by reloading
+            self._load()
+            raise
+
+    def add(self, model: Model):
+        """Add a model to the database."""
+        table = model.__class__.__name__.lower()
+        if table not in self._data:
+            self._data[table] = []
+
+        # Handle primary key
+        pk_field = model.get_primary_key()
+        if pk_field and getattr(model, pk_field.name) is None:
+            # Auto-increment
+            if self._data[table]:
+                max_id = max(row[pk_field.name] for row in self._data[table])
+                setattr(model, pk_field.name, max_id + 1)
+            else:
+                setattr(model, pk_field.name, 1)
+
+        self._data[table].append(model.to_dict())
+
+    def bulk_insert(self, model_class: Type[Model], data: List[Dict[str, Any]]):
+        """Insert multiple records."""
+        table = model_class.__name__.lower()
+        if table not in self._data:
+            self._data[table] = []
+
+        # Handle primary keys
+        pk_field = model_class.get_primary_key()
+        if pk_field:
+            start_id = 1
+            if self._data[table]:
+                start_id = max(row[pk_field.name] for row in self._data[table]) + 1
+
+            for i, row in enumerate(data):
+                if pk_field.name not in row:
+                    row[pk_field.name] = start_id + i
+
+        # Convert to models and back to ensure validation
+        models = [model_class(**row) for row in data]
+        self._data[table].extend(model.to_dict() for model in models)
+        self._save()
+
+    def migrate_record(self, model: Model, engine: Any):
+        """Migrate a record to SQLModel."""
+        # This would be implemented based on SQLModel's API
+        pass

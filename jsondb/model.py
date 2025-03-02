@@ -1,77 +1,94 @@
-from typing import Any, Dict, Optional, Type, TypeVar, get_type_hints
-from pydantic import BaseModel, Field as PydanticField
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Any, Optional, Type, TypeVar, get_type_hints, List
 
-class Field(PydanticField):
-    def __init__(
-        self,
-        *,
-        primary_key: bool = False,
-        index: bool = False,
-        unique: bool = False,
-        foreign_key: Optional[str] = None,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.primary_key = primary_key
-        self.index = index
-        self.unique = unique
-        self.foreign_key = foreign_key
+T = TypeVar('T')
 
-class ModelMetaclass(type):
-    def __new__(cls, name: str, bases: tuple, namespace: dict):
-        # Get all Field attributes
+
+@dataclass
+class Field:
+    """Field definition for models."""
+    default: Any = None
+    default_factory: Any = None
+    primary_key: bool = False
+    unique: bool = False
+    index: bool = False
+    foreign_key: Optional[str] = None
+
+    def __set_name__(self, owner: Type[Any], name: str):
+        self.name = name
+        self.owner = owner
+
+
+class ModelMeta(type):
+    """Metaclass for Model to handle field definitions."""
+
+    def __new__(mcs, name: str, bases: tuple, namespace: dict):
+        # Get type hints
+        hints = get_type_hints(namespace)
+
+        # Process fields
         fields = {}
-        for key, value in namespace.items():
-            if isinstance(value, Field):
-                fields[key] = value
-        
-        # Store fields in class
-        namespace["__fields__"] = fields
-        
-        # Create class
-        return super().__new__(cls, name, bases, namespace)
+        for key, hint in hints.items():
+            if key in namespace and isinstance(namespace[key], Field):
+                field = namespace[key]
+                field.type = hint
+                fields[key] = field
 
-class Model(BaseModel, metaclass=ModelMetaclass):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
-    def dict(self, *args, **kwargs) -> Dict[str, Any]:
-        """Convert model to dictionary."""
-        data = super().dict(*args, **kwargs)
-        # Convert datetime to ISO format
-        for key, value in data.items():
-            if isinstance(value, datetime):
-                data[key] = value.isoformat()
-        return data
-    
+        # Store fields in class
+        namespace['__fields__'] = fields
+
+        return super().__new__(mcs, name, bases, namespace)
+
+
+class Model(metaclass=ModelMeta):
+    """Base class for all models."""
+
+    def __init__(self, **kwargs):
+        for name, field in self.__fields__.items():
+            if name in kwargs:
+                setattr(self, name, kwargs[name])
+            elif field.default_factory is not None:
+                setattr(self, name, field.default_factory())
+            else:
+                setattr(self, name, field.default)
+
     @classmethod
-    def get_primary_key(cls) -> str:
-        """Get primary key field name."""
-        for name, field in cls.__fields__.items():
+    def get_field(cls, name: str) -> Optional[Field]:
+        """Get field by name."""
+        return cls.__fields__.get(name)
+
+    @classmethod
+    def get_primary_key(cls) -> Optional[Field]:
+        """Get primary key field."""
+        for field in cls.__fields__.values():
             if field.primary_key:
-                return name
-        return "id"  # Default primary key
-    
+                return field
+        return None
+
     @classmethod
-    def get_indexes(cls) -> Dict[str, Field]:
+    def get_foreign_keys(cls) -> List[Field]:
+        """Get all foreign key fields."""
+        return [
+            field for field in cls.__fields__.values()
+            if field.foreign_key is not None
+        ]
+
+    @classmethod
+    def get_indexes(cls) -> List[Field]:
         """Get all indexed fields."""
+        return [
+            field for field in cls.__fields__.values()
+            if field.index
+        ]
+
+    def to_dict(self) -> dict:
+        """Convert model to dictionary."""
         return {
-            name: field 
-            for name, field in cls.__fields__.items() 
-            if field.index or field.primary_key or field.unique
+            name: getattr(self, name)
+            for name in self.__fields__
         }
-    
+
     @classmethod
-    def get_relationships(cls) -> Dict[str, "Relationship"]:
-        """Get all relationships."""
-        from .relationships import Relationship
-        return {
-            name: field
-            for name, field in cls.__dict__.items()
-            if isinstance(field, Relationship)
-        }
+    def from_dict(cls, data: dict) -> 'Model':
+        """Create model from dictionary."""
+        return cls(**data)

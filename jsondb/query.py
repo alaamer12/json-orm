@@ -1,136 +1,173 @@
-from typing import Any, List, Optional, Type, TypeVar, Union
-from .model import Model
-from .conditions import Condition, and_, or_
+from typing import Any, List, Optional, Type, TypeVar, Union, Dict, overload
+from datetime import datetime
+from .sql.statement.select import SelectStatement
+from .sql.expression import Expression, Column, Function
+from .sql.processor.chain import ClauseProcessingBuilder
+from .sql.parameters import ParameterStore, Parameter
+from .sql.builder import QueryBuilder
 
-T = TypeVar("T", bound=Model)
+T = TypeVar('T')
 
-class QueryBuilder:
-    def __init__(self, database: "Database", model_class: Type[T]):
-        self.database = database
-        self.model_class = model_class
-        self.conditions: List[Condition] = []
-        self.order_by_field: Optional[str] = None
-        self.order_desc: bool = False
-        self.limit_val: Optional[int] = None
-        self.offset_val: Optional[int] = None
-        self.joins: List[str] = []
-    
-    def where(self, condition: Condition) -> "QueryBuilder":
-        """Add a where condition."""
-        self.conditions.append(condition)
-        return self
-    
-    def order_by(self, field: str, desc: bool = False) -> "QueryBuilder":
-        """Add order by clause."""
-        self.order_by_field = field
-        self.order_desc = desc
-        return self
-    
-    def limit(self, limit: int) -> "QueryBuilder":
-        """Add limit clause."""
-        self.limit_val = limit
-        return self
-    
-    def offset(self, offset: int) -> "QueryBuilder":
-        """Add offset clause."""
-        self.offset_val = offset
-        return self
-    
-    def join(self, model_class: Type[Model]) -> "QueryBuilder":
-        """Add a join."""
-        self.joins.append(model_class.__name__)
-        return self
-    
-    def first(self) -> Optional[T]:
-        """Get first result."""
-        results = self.all()
-        return results[0] if results else None
-    
-    def all(self) -> List[T]:
-        """Execute query and get all results."""
-        # Get all records
-        records = self.database.chunk_manager.get_all_records(
-            self.model_class.__name__
-        )
-        
-        # Apply conditions
-        if self.conditions:
-            records = self._apply_conditions(records)
-        
-        # Apply order by
-        if self.order_by_field:
-            records = sorted(
-                records,
-                key=lambda x: x[self.order_by_field],
-                reverse=self.order_desc
-            )
-        
-        # Apply limit and offset
-        if self.offset_val:
-            records = records[self.offset_val:]
-        if self.limit_val:
-            records = records[:self.limit_val]
-        
-        # Convert to model instances
-        return [self.model_class(**record) for record in records]
-    
-    def _apply_conditions(self, records: List[dict]) -> List[dict]:
-        """Apply where conditions to records."""
-        result = []
-        for record in records:
-            if all(condition.evaluate(record) for condition in self.conditions):
-                result.append(record)
-        return result
 
-class UpdateBuilder:
-    def __init__(self, database: "Database", model_class: Type[Model]):
-        self.database = database
-        self.model_class = model_class
-        self.conditions: List[Condition] = []
-        self.updates: dict = {}
-    
-    def where(self, condition: Condition) -> "UpdateBuilder":
-        """Add a where condition."""
-        self.conditions.append(condition)
+class Query:
+    """Base query class for fluent interface."""
+
+    def __init__(self):
+        self._chain = (ClauseProcessingBuilder()
+                       .add_select_handler()
+                       .add_where_handler()
+                       .add_join_handler()
+                       .add_group_by_handler()
+                       .add_having_handler()
+                       .add_order_by_handler()
+                       .add_limit_handler()
+                       .build())
+        self._params = ParameterStore()
+        self._builder = QueryBuilder(parameters=self._params)
+
+    def _process(self, statement: Any) -> None:
+        self._chain.process(statement)
+
+    def param(self, value: Any, type_hint: Optional[type] = None) -> Parameter:
+        """Create a new parameter."""
+        return self._params.add(value, type_hint)
+
+
+class Select(Query):
+    """SELECT query builder with fluent interface."""
+
+    @overload
+    def __init__(self, model: Type[T]):
+        ...
+
+    @overload
+    def __init__(self, *columns: Union[Column, Function]):
+        ...
+
+    def __init__(self, *args):
+        super().__init__()
+
+        # Handle different initialization cases
+        if len(args) == 1 and isinstance(args[0], type):
+            # select(User)
+            model = args[0]
+            self._builder.from_(model)
+            # Auto-select all columns from model
+            self._builder.select(*self._get_model_columns(model))
+        else:
+            # select(User.id, User.name)
+            self._builder.select(*args)
+
+    def where(self, *conditions: Union[Expression, Dict[str, Any]]) -> 'Select':
+        """Add WHERE conditions with parameter support."""
+        self._builder.where(*conditions)
         return self
-    
-    def values(self, **kwargs) -> "UpdateBuilder":
-        """Set values to update."""
-        self.updates.update(kwargs)
+
+    def join(self, target: Any, condition: Optional[Expression] = None) -> 'Select':
+        """Add JOIN clause."""
+        self._builder.join(target, condition)
         return self
-    
-    def execute(self) -> int:
-        """Execute update and return number of affected records."""
-        # Implementation details here
+
+    def group_by(self, *columns: Column) -> 'Select':
+        """Add GROUP BY clause."""
+        self._builder.group_by(*columns)
+        return self
+
+    def having(self, condition: Expression) -> 'Select':
+        """Add HAVING clause."""
+        self._builder.having(condition)
+        return self
+
+    def order_by(self, *columns: Union[Column, Function]) -> 'Select':
+        """Add ORDER BY clause."""
+        self._builder.order_by(*columns)
+        return self
+
+    def limit(self, limit: int) -> 'Select':
+        """Add LIMIT clause."""
+        self._builder.limit(limit)
+        return self
+
+    def offset(self, offset: int) -> 'Select':
+        """Add OFFSET clause."""
+        self._builder.offset(offset)
+        return self
+
+    def options(self, *options: Any) -> 'Select':
+        """Add query options (e.g., joinedload)."""
+        for option in options:
+            self._builder.options().add_option(option)
+        return self
+
+    def paginate(self, page: int = 1, per_page: int = 10) -> 'Select':
+        """Add pagination."""
+        offset = (page - 1) * per_page
+        return self.limit(per_page).offset(offset)
+
+    def build(self) -> tuple[SelectStatement, Dict[str, Any]]:
+        """Build and return the final statement with parameters."""
+        statement = self._builder.build()
+        self._process(statement)
+        return statement, self._params.parameters
+
+    def _get_model_columns(self, model: Type[T]) -> List[Column]:
+        """Get all columns from a model."""
+        # Implementation depends on model system
         pass
 
-class DeleteBuilder:
-    def __init__(self, database: "Database", model_class: Type[Model]):
-        self.database = database
-        self.model_class = model_class
-        self.conditions: List[Condition] = []
-    
-    def where(self, condition: Condition) -> "DeleteBuilder":
-        """Add a where condition."""
-        self.conditions.append(condition)
-        return self
-    
-    def execute(self) -> int:
-        """Execute delete and return number of affected records."""
-        # Implementation details here
-        pass
 
-def select(model_class: Type[T]) -> QueryBuilder:
-    """Create a select query."""
-    from .database import Database
-    return QueryBuilder(Database, model_class)
+# Helper functions to match example.py
+def select(*args: Any) -> Select:
+    """Create a new SELECT query."""
+    return Select(*args)
 
-def update(model_class: Type[Model]) -> UpdateBuilder:
-    """Create an update query."""
-    from .database import Database
-    return UpdateBuilder(Database, model_class)
 
-def delete(model_class: Type[Model]) -> DeleteBuilder:
-    """Create a delete query."""
-    from .database import Database
-    return DeleteBuilder(Database, model_class)
+def update(model: Type[T]) -> 'Update':
+    """Create a new UPDATE query."""
+    return Update(model)
+
+
+def delete(model: Type[T]) -> 'Delete':
+    """Create a new DELETE query."""
+    return Delete(model)
+
+
+def param(value: Any, type_hint: Optional[type] = None) -> Parameter:
+    """Create a new query parameter."""
+    return ParameterStore().add(value, type_hint)
+
+
+def and_(*conditions: Expression) -> Expression:
+    """Combine conditions with AND."""
+    from .sql.expression import And
+    return And(*conditions)
+
+
+def or_(*conditions: Expression) -> Expression:
+    """Combine conditions with OR."""
+    from .sql.expression import Or
+    return Or(*conditions)
+
+
+def desc(column: Union[Column, Function]) -> Expression:
+    """Order by column in descending order."""
+    from .sql.expression import Desc
+    return Desc(column)
+
+
+def func() -> Any:
+    """Access SQL functions."""
+    from .sql.function import Functions
+    return Functions()
+
+
+def relationship(*args: Any, **kwargs: Any) -> Any:
+    """Define a relationship."""
+    from .model.relationship import Relationship
+    return Relationship(*args, **kwargs)
+
+
+def joinedload(*args: Any) -> Any:
+    """Eager load relationships."""
+    from .model.loader import JoinedLoader
+    return JoinedLoader(*args)
