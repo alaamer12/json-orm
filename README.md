@@ -134,14 +134,6 @@ stats = (
 - Best for datasets under 100GB
 - No concurrent write operations
 
-## 🛣️ Roadmap
-
-- [ ] Basic full-text search
-- [ ] Simple caching mechanism
-- [ ] Basic query optimization
-- [ ] Memory-efficient cursors
-- [ ] Basic replication for development
-
 ## 🤝 Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.

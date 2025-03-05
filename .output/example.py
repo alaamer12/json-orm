@@ -75,7 +75,7 @@ def main():
     
     # Complex queries
     active_users = (
-        select(User)
+        select(User) # SELECT User WHERE is_active = True AND age >= 18 ORDER BY created_at DESC LIMIT 10
         .where(
             and_(
                 User.age >= 18,

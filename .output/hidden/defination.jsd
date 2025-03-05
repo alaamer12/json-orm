@@ -1,0 +1,8 @@
+{
+    "meta": {
+        "model": "User",
+        "chunk_id": 0,
+        "records": 2,
+        "next_chunk": null
+    }
+}

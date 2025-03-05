@@ -19,11 +19,6 @@
             "relationships": {
                 "posts": {"type": "one_to_many", "model": "Post", "back_populates": "author"},
                 "profile": {"type": "one_to_one", "model": "UserProfile", "back_populates": "user"}
-            },
-            "indexes": {
-                "idx_username": ["username"],
-                "idx_email": ["email"],
-                "idx_age": ["age"]
             }
         },
         "Post": {
@@ -38,24 +33,6 @@
             "relationships": {
                 "author": {"type": "many_to_one", "model": "User", "back_populates": "posts"},
                 "tags": {"type": "many_to_many", "model": "Tag", "through": "PostTag"}
-            }
-        }
-    },
-    "indexes": {
-        "User": {
-            "username": {
-                "type": "hash",
-                "values": {
-                    "john_doe": "chunks/users/chunk_0.json#1",
-                    "jane_doe": "chunks/users/chunk_0.json#2"
-                }
-            },
-            "age": {
-                "type": "btree",
-                "values": {
-                    "25": ["chunks/users/chunk_0.json#2"],
-                    "30": ["chunks/users/chunk_0.json#1"]
-                }
             }
         }
     },

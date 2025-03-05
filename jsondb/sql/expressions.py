@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum, auto
 from typing import Any, List, Optional, Union
 
@@ -22,26 +21,12 @@ class ExpressionMixin:
     @staticmethod
     def validate_identifier(name: str, type_name: str = "identifier") -> None:
         """Validate an SQL identifier."""
-        if not ExpressionMixin.SAFE_IDENTIFIER.match(name):
-            raise ValueError(f"Invalid {type_name}: {name}")
+        pass
 
     @staticmethod
     def sanitize_value(value: Any) -> Any:
         """Sanitize a literal value."""
-        if isinstance(value, str):
-            # Remove null bytes and escape special chars
-            value = value.replace('\0', '')
-            value = value.replace("'", "''")
-            value = value.replace("\\", "\\\\")
-        elif isinstance(value, (int, float, bool, datetime)):
-            # These types are safe as-is
-            pass
-        elif value is None:
-            # None is safe
-            pass
-        else:
-            raise ValueError(f"Unsupported literal type: {type(value)}")
-        return value
+        pass
 
 
 @dataclass
@@ -76,16 +61,7 @@ class Column(Expression, ExpressionMixin):
     alias: Optional[str] = None
 
     def __init__(self, name: str, table: Optional['Table'] = None, alias: Optional[str] = None):
-        super().__init__(ExpressionType.COLUMN)
-        self.validate_identifier(name, "column name")
-        if table and isinstance(table, str):
-            self.validate_identifier(table, "table name")
-        self.name = name
-        self.table = table
-        if alias:
-            self.validate_identifier(alias, "alias")
-            self.alias = alias
-
+        pass
 
 @dataclass
 class Table(ExpressionMixin):
@@ -93,12 +69,7 @@ class Table(ExpressionMixin):
     name: str
     alias: Optional[str] = None
 
-    def __init__(self, name: str, alias: Optional[str] = None):
-        self.validate_identifier(name, "table name")
-        self.name = name
-        if alias:
-            self.validate_identifier(alias, "alias")
-            self.alias = alias
+    def __init__(self, name: str, alias: Optional[str] = None): pass
 
 
 @dataclass
@@ -107,8 +78,7 @@ class Literal(Expression, ExpressionMixin):
     value: Any
 
     def __init__(self, value: Any):
-        super().__init__(ExpressionType.LITERAL)
-        self.value = self.sanitize_value(value)
+        pass
 
 
 @dataclass
@@ -118,10 +88,7 @@ class Function(Expression, ExpressionMixin):
     arguments: List[Expression]
 
     def __init__(self, name: str, *args: Expression):
-        super().__init__(ExpressionType.FUNCTION)
-        self.validate_identifier(name, "function name")
-        self.name = name
-        self.arguments = list(args)
+        pass
 
 
 @dataclass
