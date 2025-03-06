@@ -1,0 +1,29 @@
+name: Branch Protection
+
+on:
+  push:
+    branches: [ main, holder ]
+  pull_request:
+    branches: [ main, holder ]
+
+jobs:
+  branch-protection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            echo "Direct pushes to main branch are not allowed"
+            exit 1
+          fi
+          
+          if [[ "${{ github.base_ref }}" == "main" && "${{ github.head_ref }}" != "holder" ]]; then
+            echo "Only holder branch can be merged into main"
+            exit 1
+          fi
+          
+          if [[ "${{ github.head_ref }}" != "holder" && ! "${{ github.head_ref }}" =~ ^(feature|fix|docs|chore|refactor|test|ci|build|perf)/[a-z0-9-]+$ ]]; then
+            echo "Branch names must follow the pattern: <type>/<name>"
+            echo "Valid types: feature, fix, docs, chore, refactor, test, ci, build, perf"
+            exit 1
+          fi
