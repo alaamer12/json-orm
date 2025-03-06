@@ -1,0 +1,25 @@
+include LICENSE.txt
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include CoC.md
+include SECURITY.md
+include pyproject.toml
+include setup.cfg
+include jsondb/py.typed
+
+recursive-include jsondb *.py *.pyi *.json
+recursive-include tests *.py
+recursive-include docs *.rst *.py *.bat *.txt *.md
+recursive-include examples *.py *.ipynb
+
+recursive-exclude * __pycache__
+recursive-exclude * *.py[cod]
+recursive-exclude * *.so
+recursive-exclude * .DS_Store
+recursive-exclude * .env
+recursive-exclude * .venv
+recursive-exclude * *.egg-info
+recursive-exclude * .git*
+recursive-exclude * .idea
+recursive-exclude * .vscode

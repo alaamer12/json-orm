@@ -1,0 +1,6 @@
+orjson
+sqlmodel
+pydantic
+python-dotenv
+typing-extensions
+fastjsonschema
