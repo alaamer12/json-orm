@@ -1,22 +1,78 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
 name = "jsondb"
 version = "0.1.0"
-description = ""
-authors = ["alaamer12 <ahmedmuhmmed239@gmail.com>"]
+description = "A zero-configuration, SQLModel-compatible JSON database for rapid development"
+authors = ["Alaamer <ahmedmuhmmed239@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 homepage = "https://github.com/alaamer12/pyjsondb"
 repository = "https://github.com/alaamer12/pyjsondb"
 documentation = "https://jsondb.readthedocs.io/en/latest/"
-keywords = []
+keywords = ["database", "json", "orm", "sqlmodel", "rapid-development", "prototyping", "sqlalchemy"]
 classifiers = [
+    # Development Status
+    "Development Status :: 4 - Beta",
+    
+    # Target Audience
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    
+    # License
+    "License :: OSI Approved :: MIT License",
+    
+    # Natural Language
+    "Natural Language :: English",
+    
+    # Operating System
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    
+    # Environment
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    
+    # Framework
+    "Framework :: AsyncIO",
+    "Framework :: Pytest",
+    
+    # Programming Language
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    
+    # Topics
+    "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
+    "Topic :: Database :: Front-Ends",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Testing",
+    
+    # Typing
+    "Typing :: Typed",
+    
+    # Development Status
+    "Development Status :: 4 - Beta",
 ]
 packages = [
     { include = "jsondb" }
 ]
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.10" # Sphinx tools requires Python 3.10+
 
 [tool.poetry.group.build]
 optional = true
@@ -53,13 +109,88 @@ sphinxcontrib-spelling = "^8.0.1"
 sphinx-version-warning = "^1.1.2"
 sphinxext-opengraph = "^0.9.1"
 
-[build-system]
-requires = ["poetry-core >=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-ra -q"
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers --cov=jsondb --cov-report=term-missing --cov-report=xml --cov-report=html"
+asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["jsondb"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise ImportError",
+]
+ignore_errors = true
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pydantic.*"]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "TID",  # flake8-tidy-imports
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E501",  # line length violations
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.isort]
+known-first-party = ["jsondb"]
+combine-as-imports = true
+
+[tool.ruff.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["S101", "PLR2004"]
+"__init__.py" = ["F401"]
