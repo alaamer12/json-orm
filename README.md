@@ -126,6 +126,13 @@ stats = (
 )
 ```
 
+## 🔒 Branch Protection
+
+This repository enforces branch protection:
+- No direct commits to `main` branch
+- All changes must go through `holder` branch first
+- Feature branches must follow naming convention: `feature/*`, `fix/*`, etc.
+
 ## ⚠️ Limitations
 
 - Not for production use
