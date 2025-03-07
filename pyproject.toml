@@ -16,32 +16,32 @@ keywords = ["database", "json", "orm", "sqlmodel", "rapid-development", "prototy
 classifiers = [
     # Development Status
     "Development Status :: 4 - Beta",
-    
+
     # Target Audience
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Intended Audience :: System Administrators",
-    
+
     # License
     "License :: OSI Approved :: MIT License",
-    
+
     # Natural Language
     "Natural Language :: English",
-    
+
     # Operating System
     "Operating System :: OS Independent",
     "Operating System :: POSIX",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
-    
+
     # Environment
     "Environment :: Console",
     "Environment :: Web Environment",
-    
+
     # Framework
     "Framework :: AsyncIO",
     "Framework :: Pytest",
-    
+
     # Programming Language
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -52,7 +52,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython",
-    
+
     # Topics
     "Topic :: Database",
     "Topic :: Database :: Database Engines/Servers",
@@ -60,10 +60,10 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: Testing",
-    
+
     # Typing
     "Typing :: Typed",
-    
+
     # Development Status
     "Development Status :: 4 - Beta",
 ]
@@ -73,13 +73,17 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10" # Sphinx tools requires Python 3.10+
+orjson = "^3.10.15"
+pydantic = "^2.10.6"
+typing-extensions = "^4.12.2"
+python-dotenv = "^1.0.1"
+fastjsonschema = "^2.21.1"
 
 [tool.poetry.group.build]
 optional = true
 
 [tool.poetry.group.build.dependencies]
 twine = "^5.1.1"
-setuptools = ">=75.3.0,<75.4.0"
 
 [tool.poetry.group.test]
 optional = false
@@ -109,6 +113,16 @@ sphinxcontrib-spelling = "^8.0.1"
 sphinx-version-warning = "^1.1.2"
 sphinxext-opengraph = "^0.9.1"
 
+[tool.poetry.group.dev]
+optional = false
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.9.9"
+mypy = "^1.15.0"
+pre-commit = "^4.1.0"
+pylint = "^3.3.4"
+
+# Configuration tools
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
