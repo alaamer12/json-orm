@@ -13,6 +13,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 import g4f
 import concurrent.futures
 from concurrent.futures import TimeoutError
+from datetime import datetime
+import os
 
 console = Console()
 
@@ -28,6 +30,12 @@ class FileChange:
     status: str  # 'M' (modified), 'A' (added), 'D' (deleted), 'R' (renamed)
     diff: str
     type: Optional[str] = None  # 'feat', 'fix', 'docs', etc.
+    diff_lines: int = 0
+    last_modified: float = 0.0
+
+    def __post_init__(self):
+        self.diff_lines = len(self.diff.strip().splitlines())
+        self.last_modified = os.path.getmtime(self.path) if os.path.exists(self.path) else 0.0
 
 def run_git_command(command: List[str]) -> Tuple[str, str, int]:
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -57,7 +65,6 @@ def get_file_diff(file_path: str) -> str:
         return stdout
     stdout, _, code = run_git_command(["git", "diff", "--", file_path])
     return stdout if code == 0 else ""
-
 
 def analyze_file_type(file_path: Path, diff: str) -> str:
     """Determine the type of change based on file path and diff content."""
@@ -137,10 +144,10 @@ def generate_commit_message(changes: List[FileChange]) -> str:
     for _ in range(Attempts):
         prompt = determine_prompt(combined_context, changes, total_diff_lines)
         model_message = model_prompt(prompt)
-        
+
         if not model_message:
             return generate_fallback_message(changes)
-        
+
         if is_comprehensive and len(model_message) < MIN_COMPREHENSIVE_LENGTH:
             action = handle_short_comprehensive_message(model_message)
             if action == "use":
@@ -149,7 +156,7 @@ def generate_commit_message(changes: List[FileChange]) -> str:
                 continue
             else:
                 return generate_fallback_message(changes)
-        
+
         return model_message
 
     return generate_fallback_message(changes)
@@ -158,20 +165,20 @@ def create_combined_context(changes: List[FileChange]) -> str:
     return "\n".join([f"{change.status} {change.path}" for change in changes])
 
 def calculate_total_diff_lines(changes: List[FileChange]) -> int:
-    return sum(len(change.diff.strip().splitlines()) for change in changes)
+    return sum(change.diff_lines for change in changes)
 
 def handle_short_comprehensive_message(model_message: str) -> str:
     console.print("\n[yellow]Warning: Generated commit message seems too brief for a large change.[/yellow]")
     console.print(f"Generated message: [cyan]{model_message}[/cyan]\n")
-    
+
     table = Table(show_header=False, style="blue")
     table.add_row("[1] Use this message anyway")
     table.add_row("[2] Try generating again")
     table.add_row("[3] Use auto-generated message")
     console.print(table)
-    
+
     choice = input("\nChoose an option (1-3): ").strip()
-    
+
     if choice == "1":
         return "use"
     elif choice == "2":
@@ -313,13 +320,73 @@ def reset_staging():
     run_git_command(["git", "reset", "HEAD"])
 
 
+def format_diff_lines(lines: int) -> str:
+    if lines < 10:
+        return f"[green]{lines}[/green]"
+    elif lines < 50:
+        return f"[yellow]{lines}[/yellow]"
+    else:
+        return f"[red]{lines}[/red]"
+
+def format_time_ago(timestamp: float) -> str:
+    if timestamp == 0:
+        return "N/A"
+
+    now = datetime.now().timestamp()
+    diff = now - timestamp
+
+    if diff < 60:
+        return "just now"
+    elif diff < 3600:
+        minutes = int(diff / 60)
+        return f"{minutes}m ago"
+    elif diff < 86400:
+        hours = int(diff / 3600)
+        return f"{hours}h ago"
+    else:
+        days = int(diff / 86400)
+        return f"{days}d ago"
+
+def create_staged_table() -> Table:
+	return Table(
+        title="Staged Changes",
+        show_header=True,
+        header_style="bold magenta",
+        show_lines=True
+    )
+
+def config_staged_table(table) -> None:
+	table.add_column("Status", justify="center", width=8)
+	table.add_column("File Path", width=40)
+	table.add_column("Type", justify="center", width=10)
+	table.add_column("Changes", justify="right", width=10)
+	table.add_column("Last Modified", justify="right", width=12)
+
+def apply_table_styling(table, change):
+	status_color = {
+		'M': 'yellow',
+		'A': 'green',
+		'D': 'red',
+		'R': 'blue'
+	}.get(change.status, 'white')
+
+	table.add_row(
+		f"[{status_color}]{change.status}[/{status_color}]",
+		str(change.path),
+		f"[green]{change.type}[/green]",
+		format_diff_lines(change.diff_lines),
+		format_time_ago(change.last_modified)
+	)
 def display_changes(changes: List[FileChange]):
-    table = Table(title="Staged Changes", show_header=True, header_style="bold magenta")
-    table.add_column("Status", justify="center")
-    table.add_column("File Path")
-    table.add_column("Type", justify="center")
+	# Create table
+    table = create_staged_table()
+
+    # Config the table
+    config_staged_table(table)
+
     for change in changes:
-        table.add_row(f"[cyan]{change.status}[/cyan]", f"[white]{change.path}[/white]", f"[green]{change.type}[/green]")
+        apply_table_styling(table, change)
+
     console.print(table)
 
 
@@ -380,14 +447,18 @@ def process_change_group(group):
     message = generate_commit_message(group)
     display_commit_preview(message)
     response = input("Proceed with commit? (Y/n/e to edit): ").lower()
-
-    if response == "n":
+    while response not in ["y", "n", "e"]:
+        response = input("Invalid response. Proceed with commit? (Y/n/e to edit): ").lower()
+    if response == "y":
+        commit_changes([str(change.path) for change in group], message)
+    elif response == "n":
         console.print("[yellow]Skipping these changes...[/yellow]")
     elif response == "e":
         message = input("Enter new commit message: ")
         commit_changes([str(change.path) for change in group], message)
     else:
-        commit_changes([str(change.path) for change in group], message)
+        console.print("[red]Something went wrong. Exiting...[/red]")
+        sys.exit(1)
 
 
 def display_commit_preview(message):
