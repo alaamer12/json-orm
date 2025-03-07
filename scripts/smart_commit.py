@@ -11,6 +11,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 import g4f
+import concurrent.futures
+from concurrent.futures import TimeoutError
 
 console = Console()
 
@@ -65,7 +67,7 @@ def analyze_file_type(file_path: Path, diff: str) -> str:
     - chore: Other changes that don't modify src or test files
     """
     type_patterns = {
-        "test": (r"test[s]?/|testing/|__tests?__/|tests?\..*$|pytest\.ini$|conftest\.py$|.*_test\.py$|test_.*\.py$"),
+        "test": (r"^tests?/|^testing/|^__tests?__/|^test_.*\.py$|^.*_test\.py$"),
         "docs": (r"^docs?/|\.md$|\.rst$|^(README|CHANGELOG|CONTRIBUTING|HISTORY|AUTHORS|SECURITY)(\.[^/]+)?$|^(COPYING|LICENSE)(\.[^/]+)?$|^(api|docs|documentation)/|.*\.docstring$"),
         "style": (r"\.(css|scss|sass|less|styl)$|^styles?/|^themes?/|\.editorconfig$|\.prettierrc|\.eslintrc|\.flake8$|\.style\.yapf$|\.isort\.cfg$|setup\.cfg$"),
         "ci": (r"^\.github/workflows/|^\.gitlab-ci|\.travis\.yml$|^\.circleci/|^\.azure-pipelines|^\.jenkins|^\.github/actions/|\.pre-commit-config\.yaml$"),
@@ -75,11 +77,11 @@ def analyze_file_type(file_path: Path, diff: str) -> str:
     }
 
     diff_patterns = {
-        "test": r"def test_|class Test|@pytest|unittest|@test|describe\s*\(|it\s*\(",
-        "fix": r"fix|bug|issue|error|crash|resolve|closes?\s+#\d+",
-        "refactor": r"refactor|clean|move|rename|restructure|rewrite",
-        "perf": r"optimiz|performance|speed|memory|cpu|runtime|cache|faster|slower",
-        "style": r"style|format|lint|prettier|eslint|indent|spacing"
+        "test": r"\bdef test_|\bclass Test|\@pytest|\bunittest|\@test\b",
+        "fix": r"\bfix|\bbug|\bissue|\berror|\bcrash|resolve|closes?\s+#\d+",
+        "refactor": r"\brefactor|\bclean|\bmove|\brename|\brestructure|\brewrite",
+        "perf": r"\boptimiz|\bperformance|\bspeed|\bmemory|\bcpu|\bruntime|\bcache|\bfaster|\bslower",
+        "style": r"\bstyle|\bformat|\blint|\bprettier|\beslint|\bindent|\bspacing"
     }
 
     def check_patterns(text: str, patterns: dict) -> Optional[str]:
@@ -88,15 +90,26 @@ def analyze_file_type(file_path: Path, diff: str) -> str:
                 return type_name
         return None
 
-    file_path_str = str(file_path).lower()
+    file_path_str = str(file_path)
+    
+    # Check if the file is in a dedicated test directory
+    if any(part.lower() == "tests" or part.lower() == "test" for part in file_path.parts):
+        return "test"
+    
+    # Check file name patterns
     file_type = check_patterns(file_path_str, type_patterns)
     if file_type:
         return file_type
 
+    # Check if the diff contains test-related content
     if diff:
         diff_type = check_patterns(diff.lower(), diff_patterns)
         if diff_type:
             return diff_type
+
+    # Check if it's in scripts directory
+    if "scripts" in file_path.parts:
+        return "chore"
 
     return "feat"
 
@@ -117,37 +130,45 @@ def generate_commit_message(changes: List[FileChange]) -> str:
     Respond with only expected commit follows best practices, without any introductions or explanations.
     """
 
-	try:
-		return model_prompt(prompt)
-	except Exception as e:
-		console.print(f"[red]Error generating commit message:[/red] {e}", style="bold red")
-		pass
+	model_message = model_prompt(prompt)
+	if model_message:
+		return model_message
 
 	return f"{changes[0].type}: update {' '.join(str(c.path.name) for c in changes)}"
 
 
 def model_prompt(prompt: str) -> str:
-	with Progress(
-		SpinnerColumn(),
-		TextColumn("[progress.description]{task.description}"),
-		console=console,
-	) as progress:
-		task = progress.add_task("Waiting for model response...", total=None)
+    def get_model_response():
+        return g4f.ChatCompletion.create(
+            model=g4f.models.gpt_4o_mini,
+            messages=[
+                {"role": "system", "content": "Follow instructions precisely and respond concisely."},
+                {"role": "user", "content": prompt}
+            ],
+        )
 
-		response = g4f.ChatCompletion.create(
-			model=g4f.models.gpt_4o_mini,
-			messages=[
-				{"role": "system",
-				 "content": "Follow instructions precisely and respond concisely."},
-				{"role": "user", "content": prompt}
-			],
-		)
-
-		progress.remove_task(task)
-
-	message = response.strip().split("\n")[0]
-	console.print(message)
-	return message
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Waiting for model response...", total=None)
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(get_model_response)
+            try:
+                response = future.result(timeout=10)  # 5 second timeout
+                progress.remove_task(task)
+                message = response.strip().split("\n")[0]
+                console.print(message)
+                return message
+            except (TimeoutError, Exception) as e:
+                progress.remove_task(task)
+                if isinstance(e, TimeoutError):
+                    console.print("[yellow]Model response timed out, using fallback message[/yellow]")
+                else:
+                    console.print(f"[yellow]Error in model response, using fallback message: {str(e)}[/yellow]")
+                return None
 
 
 def commit_changes(files: List[str], message: str):
@@ -171,8 +192,10 @@ def commit_changes(files: List[str], message: str):
     else:
         console.print(f"[red]✘ Error committing changes:[/red] {stderr}")
 
+
 def reset_staging():
     run_git_command(["git", "reset", "HEAD"])
+
 
 def display_changes(changes: List[FileChange]):
     table = Table(title="Staged Changes", show_header=True, header_style="bold magenta")
@@ -182,6 +205,7 @@ def display_changes(changes: List[FileChange]):
     for change in changes:
         table.add_row(f"[cyan]{change.status}[/cyan]", f"[white]{change.path}[/white]", f"[green]{change.type}[/green]")
     console.print(table)
+
 
 def main():
     reset_staging()
@@ -194,6 +218,7 @@ def main():
 
     for group in change_groups:
         process_change_group(group)
+
 
 def get_valid_changes():
     changed_files = parse_git_status()
@@ -222,15 +247,18 @@ def get_valid_changes():
     
     return changes
 
+
 def create_file_change(status, file_path):
     path = Path(file_path)
     diff = get_file_diff(file_path)
     file_type = analyze_file_type(path, diff)
     return FileChange(path, status, diff, file_type) if diff else None
 
+
 def exit_with_no_changes():
     console.print("[yellow]⚠ No changes to commit[/yellow]")
     sys.exit(0)
+
 
 def process_change_group(group):
     message = generate_commit_message(group)
@@ -245,12 +273,14 @@ def process_change_group(group):
     else:
         commit_changes([str(change.path) for change in group], message)
 
+
 def display_commit_preview(message):
     console.print(Panel(
         f"Proposed commit message:\n[bold cyan]{message}[/bold cyan]",
         title="Commit Preview",
         border_style="blue"
     ))
+
 
 if __name__ == "__main__":
     main()
