@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 import subprocess
 import sys
-from typing import List, Tuple, Dict, Optional
-import g4f
-
-from pathlib import Path
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from collections import defaultdict
+from typing import List, Tuple, Optional
+from rich import print
+from rich.console import Console
+from rich.table import Table
+from rich.prompt import Prompt, Confirm
+from rich.panel import Panel
+from rich.text import Text
+import g4f
+
+console = Console()
 
 @dataclass
 class FileChange:
@@ -17,179 +24,124 @@ class FileChange:
     type: Optional[str] = None  # 'feat', 'fix', 'docs', etc.
 
 def run_git_command(command: List[str]) -> Tuple[str, str, int]:
-    """Run a git command and return stdout, stderr, and return code."""
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout, stderr = process.communicate()
     return stdout, stderr, process.returncode
 
-def get_changed_files() -> List[str]:
-    """Get list of changed files."""
-    stdout, stderr, code = run_git_command(['git', 'status', '--porcelain'])
+def parse_git_status() -> List[Tuple[str, str]]:
+    stdout, stderr, code = run_git_command(["git", "status", "--porcelain"])
     if code != 0:
-        print(f"Error getting git status: {stderr}")
-        # sys.exit(1)
-    return [line.strip() for line in stdout.split('\n') if line.strip()]
+        console.print(f"[red]Error getting git status:[/red] {stderr}", style="bold red")
+        sys.exit(1)
+    
+    changes = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        status, file_path = line[:2].strip(), line[3:].strip()
+        if status == "R":
+            file_path = file_path.split(" -> ")[1]
+        changes.append((status, file_path))
+    return changes
 
 def get_file_diff(file_path: str) -> str:
-    """Get git diff for a specific file."""
-    stdout, stderr, code = run_git_command(['git', 'diff', '--staged', file_path])
-    if code != 0:
-        print(f"Error getting git diff: {stderr}")
-        # sys.exit(1)
-    return stdout
+    stdout, _, code = run_git_command(["git", "diff", "--cached", "--", file_path])
+    if code == 0 and stdout:
+        return stdout
+    stdout, _, code = run_git_command(["git", "diff", "--", file_path])
+    return stdout if code == 0 else ""
 
 def analyze_file_type(file_path: Path, diff: str) -> str:
-    """Analyze file to suggest commit type."""
-    file_types = {
-        'test': r'(test|spec)[s]?\.py$',
-        'docs': r'(docs/|\.md$|\.rst$)',
-        'style': r'\.(css|scss|less)$',
-        'ci': r'(\.github/|\.gitlab-ci|\.travis|\.circleci)',
-        'build': r'(setup\.py|pyproject\.toml|requirements\.txt)',
+    patterns = {
+        "test": r"(test|spec)[s]?\.py$",
+        "docs": r"(docs/|\.md$|\.rst$)",
+        "style": r"\.(css|scss|less)$",
+        "ci": r"(\.github/|\.gitlab-ci|\.travis|\.circleci)",
+        "build": r"(setup\.py|pyproject\.toml|requirements\.txt|Makefile)",
     }
-    
-    # Check file path patterns
-    for type_name, pattern in file_types.items():
+    for type_name, pattern in patterns.items():
         if re.search(pattern, str(file_path), re.I):
             return type_name
-    
-    # Check diff content
-    if 'def test_' in diff or 'class Test' in diff:
-        return 'test'
-    if 'fix' in diff.lower() or 'bug' in diff.lower():
-        return 'fix'
-    if 'refactor' in diff.lower():
-        return 'refactor'
-    
-    return 'feat'  # default to feature
+    if diff:
+        if "def test_" in diff or "class Test" in diff:
+            return "test"
+        if "fix" in diff.lower() or "bug" in diff.lower():
+            return "fix"
+        if "refactor" in diff.lower():
+            return "refactor"
+    return "feat"
 
 def group_related_changes(changes: List[FileChange]) -> List[List[FileChange]]:
-    """Group related file changes together."""
     groups = defaultdict(list)
-    
-    # Group by type and related files
     for change in changes:
-        key = change.type
-        if change.path.parent:
-            # Group files in same directory
-            key = f"{key}_{change.path.parent}"
+        key = f"{change.type}_{change.path.parent}" if change.path.parent.name != '.' else change.type
         groups[key].append(change)
-    
     return list(groups.values())
 
 def generate_commit_message(changes: List[FileChange]) -> str:
-    """Generate commit message for a group of related changes."""
-    # Combine all diffs and paths for context
-    combined_context = "\n".join([
-        f"File: {change.path}\nStatus: {change.status}\nDiff:\n{change.diff}"
-        for change in changes
-    ])
-    
+    combined_context = "\n".join([f"{change.status} {change.path}" for change in changes])
     prompt = f"""
-    Analyze these related file changes and create a conventional commit message.
-    Rules:
-    1. Format: type(scope): description
-    2. Types: feat, fix, docs, style, refactor, test, chore
-    3. Be specific but concise
-    4. Use imperative mood
-    5. Focus on the main change
-    
-    Changes:
+    Analyze these file changes and generate a conventional commit message:
     {combined_context}
-    
-    Generate only the commit message, nothing else.
     """
-    
-    
     try:
         response = g4f.ChatCompletion.create(
-              model="gpt-4o-mini",
+            model=g4f.models.gpt_35_turbo,
             messages=[{"role": "user", "content": prompt}],
-              web_search=False
         )
-        message = response.strip().split('\n')[0]
-        if message and any(t in message for t in ['feat', 'fix', 'docs', 'style', 'refactor', 'test', 'chore']):
-            return message
+        return response.strip().split("\n")[0]
     except Exception:
-      pass
-    
-    # Fallback: Create conventional message from file analysis
-    change_type = changes[0].type or 'chore'
-    scope = changes[0].path.parent.name if changes[0].path.parent.name != '.' else None
-    scope_str = f"({scope})" if scope else ""
-    return f"{change_type}{scope_str}: update {', '.join(str(c.path.name) for c in changes)}"
+        pass
+    return f"{changes[0].type}: update {' '.join(str(c.path.name) for c in changes)}"
 
-def stage_file(file_path: str):
-    """Stage a specific file."""
-    stdout, stderr, code = run_git_command(['git', 'add', file_path])
-    if code != 0:
-        print(f"Error staging {file_path}: {stderr}")
-        # sys.exit(1)
+def commit_changes(files: List[str], message: str):
+    for file_path in files:
+        run_git_command(["git", "add", "--", file_path])
+    stdout, stderr, code = run_git_command(["git", "commit", "-m", message])
+    if code == 0:
+        console.print(f"[green]✔ Successfully committed:[/green] {message}")
+    else:
+        console.print(f"[red]✘ Error committing changes:[/red] {stderr}")
 
-def commit_changes(message: str):
-    """Commit changes with the given message."""
-    stdout, stderr, code = run_git_command(['git', 'commit', '-m', message])
-    if code != 0:
-        print(f"Error committing changes: {stderr}")
-        # sys.exit(1)
-    print(f"Successfully committed with message: {message}")
+def reset_staging():
+    run_git_command(["git", "reset", "HEAD"])
+
+def display_changes(changes: List[FileChange]):
+    table = Table(title="Staged Changes", show_header=True, header_style="bold magenta")
+    table.add_column("Status", justify="center")
+    table.add_column("File Path")
+    table.add_column("Type", justify="center")
+    for change in changes:
+        table.add_row(f"[cyan]{change.status}[/cyan]", f"[white]{change.path}[/white]", f"[green]{change.type}[/green]")
+    console.print(table)
 
 def main():
-    # Get all changed files
-    changed_files = ['M MANIFEST.in', 'M poetry.lock', 'M pyproject.toml', 'AM requirements/build.txt', 'M requirements/deps.txt', 'M requirements/dev.txt', 'M requirements/test.txt', 'A  scripts/requirements.txt', 'AM scripts/smart_commit.py']
+    reset_staging()
+    changed_files = parse_git_status()
     if not changed_files:
-        print("No changes to commit")
-        # sys.exit(0)
+        console.print("[yellow]⚠ No changes to commit[/yellow]")
+        sys.exit(0)
     
-    # Process each changed file
-    changes = []
-    for file_info in changed_files:
-        status = file_info[:2].strip()
-        file_path = file_info[3:].strip()
-        
-        # Stage the file to get its diff
-        stage_file(file_path)
-        diff = get_file_diff(file_path)
-        
-        # Create FileChange object
-        path = Path(file_path)
-        change = FileChange(
-            path=path,
-            status=status,
-            diff=diff,
-            type=analyze_file_type(path, diff)
-        )
-        changes.append(change)
+    changes = [FileChange(Path(fp), st, get_file_diff(fp), analyze_file_type(Path(fp), get_file_diff(fp))) for st, fp in changed_files]
+    if not changes:
+        console.print("[yellow]⚠ No valid changes to commit[/yellow]")
+        sys.exit(0)
     
-    # Group related changes
+    display_changes(changes)
     change_groups = group_related_changes(changes)
     
-    # Process each group
     for group in change_groups:
-        # Generate commit message
-        print("\nAnalyzing changes for files:")
-        for change in group:
-            print(f"  - {change.path} ({change.type})")
-        
         message = generate_commit_message(group)
+        console.print(Panel(f"Proposed commit message:\n[bold cyan]{message}[/bold cyan]", title="Commit Preview", border_style="blue"))
+        response = Prompt.ask("Proceed with commit? (Y/n/e to edit)", choices=["y", "n", "e"], default="y")
         
-        # Ask for confirmation
-        print(f"\nProposed commit message: {message}")
-        response = input("Proceed with commit? (Y/n/e to edit): ").lower()
-        
-        if response == 'n':
-            print("Skipping these changes...")
+        if response == "n":
+            console.print("[yellow]Skipping these changes...[/yellow]")
             continue
-        elif response == 'e':
-            message = input("Enter new commit message: ")
+        elif response == "e":
+            message = Prompt.ask("Enter new commit message")
         
-        # Commit this group
-        commit_changes(message)
+        commit_changes([str(change.path) for change in group], message)
 
 if __name__ == "__main__":
     main()
