@@ -408,27 +408,40 @@ def get_valid_changes():
     if not changed_files:
         return []
 
+    return process_changed_files(changed_files)
+
+def process_changed_files(changed_files):
     changes = []
-    with Progress(
+    with create_progress_bar() as progress:
+        analyze_task, diff_task = create_progress_tasks(progress, len(changed_files))
+        for status, file_path in changed_files:
+            file_change = process_single_file(status, file_path, progress, diff_task)
+            if file_change:
+                changes.append(file_change)
+            progress.advance(analyze_task)
+    return changes
+
+def create_progress_bar():
+    return Progress(
         "[progress.description]{task.description}",
         BarColumn(),
         TaskProgressColumn(),
         console=console
-    ) as progress:
-        analyze_task = progress.add_task("Analyzing files...", total=len(changed_files))
-        diff_task = progress.add_task("Getting file diffs...", total=len(changed_files))
+    )
 
-        for st, fp in changed_files:
-            path = Path(fp)
-            diff = get_file_diff(fp)
-            progress.advance(diff_task)
+def create_progress_tasks(progress, total):
+    analyze_task = progress.add_task("Analyzing files...", total=total)
+    diff_task = progress.add_task("Getting file diffs...", total=total)
+    return analyze_task, diff_task
 
-            if diff:
-                file_type = analyze_file_type(path, diff)
-                changes.append(FileChange(path, st, diff, file_type))
-            progress.advance(analyze_task)
-
-    return changes
+def process_single_file(status, file_path, progress, diff_task):
+    path = Path(file_path)
+    diff = get_file_diff(file_path)
+    progress.advance(diff_task)
+    if diff:
+        file_type = analyze_file_type(path, diff)
+        return FileChange(path, status, diff, file_type)
+    return None
 
 
 def create_file_change(status, file_path):
