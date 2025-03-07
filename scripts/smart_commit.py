@@ -5,24 +5,27 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 from collections import defaultdict
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union, Literal, Dict, Any
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 import g4f
+from g4f.client import Client
 import concurrent.futures
 from concurrent.futures import TimeoutError
 from datetime import datetime
 import os
 
 console = Console()
+client = Client()
 
 PROMPT_THRESHOLD = 80  # lines
 FALLBACK_TIMEOUT = 10  # secs
 MIN_COMPREHENSIVE_LENGTH = 50  # minimum length for comprehensive commit messages
 Attempts = 3 # number of attempts
-
+MODEL_TYPE = Union[g4f.Model, g4f.models, str]
+MODEL: MODEL_TYPE = g4f.models.gpt_4o_mini
 
 @dataclass
 class FileChange:
@@ -140,26 +143,49 @@ def generate_commit_message(changes: List[FileChange]) -> str:
     combined_context = create_combined_context(changes)
     total_diff_lines = calculate_total_diff_lines(changes)
     is_comprehensive = total_diff_lines >= PROMPT_THRESHOLD
+    diffs_summary = generate_diff_summary(changes) if is_comprehensive else ""
+    
+    tool_calls = determine_tool_calls(is_comprehensive, combined_context, diffs_summary)
 
     for _ in range(Attempts):
-        prompt = determine_prompt(combined_context, changes, total_diff_lines)
-        model_message = model_prompt(prompt)
+        message = attempt_generate_message(combined_context, tool_calls, changes, total_diff_lines)
+        if not message:
+            continue
 
-        if not model_message:
-            return generate_fallback_message(changes)
-
-        if is_comprehensive and len(model_message) < MIN_COMPREHENSIVE_LENGTH:
-            action = handle_short_comprehensive_message(model_message)
-            if action == "use":
-                return model_message
-            elif action == "retry":
+        if is_comprehensive:
+            result = handle_comprehensive_message(message, changes)
+            if result == "retry":
                 continue
-            else:
-                return generate_fallback_message(changes)
-
-        return model_message
+            if result:
+                return result
+        else:
+            return message
 
     return generate_fallback_message(changes)
+
+def determine_tool_calls(is_comprehensive: bool, combined_text: str, diffs_summary: str = "") -> Dict[str, Any]:
+    if is_comprehensive:
+        return create_comprehensive_tool_call(combined_text, diffs_summary)
+    else:
+        return create_simple_tool_call(combined_text)
+
+def attempt_generate_message(combined_context: str, tool_calls: Dict[str, Any], changes: List[FileChange], total_diff_lines: int) -> Optional[str]:
+    prompt = determine_prompt(combined_context, changes, total_diff_lines)
+    return model_prompt(prompt, tool_calls)
+
+def handle_comprehensive_message(message: Optional[str], changes: List[FileChange]) -> Union[str, Literal["retry"], None]:
+    if not message:
+        return None
+        
+    if len(message) < MIN_COMPREHENSIVE_LENGTH:
+        action = handle_short_comprehensive_message(message)
+        if action == "use":
+            return message
+        elif action == "retry":
+            return "retry"
+        else:
+            return generate_fallback_message(changes)
+    return message
 
 def create_combined_context(changes: List[FileChange]) -> str:
     return "\n".join([f"{change.status} {change.path}" for change in changes])
@@ -243,17 +269,64 @@ def generate_comprehensive_prompt(combined_text, diffs_summary):
     Respond with ONLY the commit message, no explanations.
     """
 
-def model_prompt(prompt: str) -> str:
-    return execute_with_progress(get_model_response, prompt)
+def model_prompt(prompt: str, tool_calls: Dict[str, Any]) -> str:
+    return execute_with_progress(get_model_response, prompt, tool_calls)
 
-def get_model_response(prompt: str) -> str:
-    return g4f.ChatCompletion.create(
-        model=g4f.models.gpt_4o_mini,
-        messages=[
-            {"role": "system", "content": "Follow instructions precisely and respond concisely."},
-            {"role": "user", "content": prompt}
-        ],
-    )
+def create_simple_tool_call(combined_text: str) -> Dict[str, Any]:
+    return {
+        "function": {
+            "name": "generate_commit",
+            "arguments": {
+                "files": combined_text,
+                "style": "conventional",
+                "format": "inline",
+                "max_length": 72,
+                "include_scope": True,
+                "strict_conventional": True
+            }
+        },
+        "type": "function"
+    }
+
+def create_comprehensive_tool_call(combined_text: str, diffs_summary: str) -> Dict[str, Any]:
+    return {
+        "function": {
+            "name": "generate_commit",
+            "arguments": {
+                "files": combined_text,
+                "diffs": diffs_summary,
+                "style": "conventional",
+                "format": "detailed",
+                "max_first_line": 72,
+                "include_scope": True,
+                "include_breaking": True,
+                "include_references": True,
+                "sections": [
+                    "summary",
+                    "changes",
+                    "breaking",
+                    "references"
+                ],
+                "strict_conventional": True
+            }
+        },
+        "type": "function"
+    }
+
+def get_model_response(prompt: str, tool_calls: Dict[str, Any]) -> Optional[str]:
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "Follow instructions precisely and respond concisely."},
+                {"role": "user", "content": prompt}
+            ],
+			tool_calls=[tool_calls]  # Wrap in list as API expects array of tool calls
+        )
+        return response.choices[0].message.content if response and response.choices else None
+    except Exception as e:
+        console.print(f"[red]Error in model response: {str(e)}[/red]")
+        return None
 
 def execute_with_progress(func, *args):
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
@@ -267,13 +340,16 @@ def execute_with_timeout(func, progress, task, *args, timeout=FALLBACK_TIMEOUT):
             response = future.result(timeout=timeout)
             return process_response(response)
         except (TimeoutError, Exception) as e:
-            return handle_error(e)
+            handle_error(e)
+            return None
         finally:
             progress.remove_task(task)
 
-def process_response(response: str) -> str:
-    message = response.strip().split("\n")[0]
-    console.print(message)
+def process_response(response: Optional[str]) -> Optional[str]:
+    if not response:
+        return None
+    message = response.strip().split("\n")[0] if '\n' in response else response.strip()
+    console.print(f"[dim]Generated message:[/dim] [cyan]{message}[/cyan]")
     return message
 
 def handle_error(error: Exception) -> None:
