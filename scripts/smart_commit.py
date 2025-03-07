@@ -52,66 +52,64 @@ def get_file_diff(file_path: str) -> str:
     stdout, _, code = run_git_command(["git", "diff", "--", file_path])
     return stdout if code == 0 else ""
 
+
 def analyze_file_type(file_path: Path, diff: str) -> str:
-    """
-    Types:
-    - feat: A new feature
-    - fix: A bug fix
-    - docs: Documentation only changes
-    - style: Changes that do not affect the meaning of the code
-    - refactor: A code change that neither fixes a bug nor adds a feature
-    - perf: A code change that improves performance
-    - test: Adding missing tests or correcting existing tests
-    - build: Changes that affect the build system or external dependencies
-    - ci: Changes to our CI configuration files and scripts
-    - chore: Other changes that don't modify src or test files
-    """
-    type_patterns = {
-        "test": (r"^tests?/|^testing/|^__tests?__/|^test_.*\.py$|^.*_test\.py$"),
-        "docs": (r"^docs?/|\.md$|\.rst$|^(README|CHANGELOG|CONTRIBUTING|HISTORY|AUTHORS|SECURITY)(\.[^/]+)?$|^(COPYING|LICENSE)(\.[^/]+)?$|^(api|docs|documentation)/|.*\.docstring$"),
-        "style": (r"\.(css|scss|sass|less|styl)$|^styles?/|^themes?/|\.editorconfig$|\.prettierrc|\.eslintrc|\.flake8$|\.style\.yapf$|\.isort\.cfg$|setup\.cfg$"),
-        "ci": (r"^\.github/workflows/|^\.gitlab-ci|\.travis\.yml$|^\.circleci/|^\.azure-pipelines|^\.jenkins|^\.github/actions/|\.pre-commit-config\.yaml$"),
-        "build": (r"^pyproject\.toml$|^setup\.(py|cfg)$|^requirements/|^requirements.*\.txt$|^poetry\.lock$|^Pipfile(\.lock)?$|^package(-lock)?\.json$|^yarn\.lock$|^Makefile$|^Dockerfile$|^docker-compose\.ya?ml$|^MANIFEST\.in$"),
-        "perf": (r"^benchmarks?/|^performance/|\.*.profile$|^profiling/|^\.?cache/"),
-        "chore": (r"^\.env(\.|$)|\.(ini|cfg|conf|json|ya?ml|toml|properties)$|^config/|^settings/|^\.git.*$")
-    }
+	"""Analyze the file type based on its path and content."""
+	# Check if the file path contains 'scripts' first
+	if "scripts" in file_path.parts:
+		return "chore"
 
-    diff_patterns = {
-        "test": r"\bdef test_|\bclass Test|\@pytest|\bunittest|\@test\b",
-        "fix": r"\bfix|\bbug|\bissue|\berror|\bcrash|resolve|closes?\s+#\d+",
-        "refactor": r"\brefactor|\bclean|\bmove|\brename|\brestructure|\brewrite",
-        "perf": r"\boptimiz|\bperformance|\bspeed|\bmemory|\bcpu|\bruntime|\bcache|\bfaster|\bslower",
-        "style": r"\bstyle|\bformat|\blint|\bprettier|\beslint|\bindent|\bspacing"
-    }
+	if is_test_file(file_path):
+		return "test"
 
-    def check_patterns(text: str, patterns: dict) -> Optional[str]:
-        for type_name, pattern in patterns.items():
-            if re.search(pattern, text, re.I):
-                return type_name
-        return None
+	file_type = check_file_path_patterns(file_path)
+	if file_type:
+		return file_type
 
-    file_path_str = str(file_path)
-    
-    # Check if the file is in a dedicated test directory
-    if any(part.lower() == "tests" or part.lower() == "test" for part in file_path.parts):
-        return "test"
-    
-    # Check file name patterns
-    file_type = check_patterns(file_path_str, type_patterns)
-    if file_type:
-        return file_type
+	diff_type = check_diff_patterns(diff)
+	if diff_type:
+		return diff_type
 
-    # Check if the diff contains test-related content
-    if diff:
-        diff_type = check_patterns(diff.lower(), diff_patterns)
-        if diff_type:
-            return diff_type
+	return "feat"
 
-    # Check if it's in scripts directory
-    if "scripts" in file_path.parts:
-        return "chore"
 
-    return "feat"
+def is_test_file(file_path: Path) -> bool:
+	"""Check if the file is in a dedicated test directory."""
+	return any(part.lower() in ("tests", "test") for part in file_path.parts)
+
+
+def check_file_path_patterns(file_path: Path) -> Optional[str]:
+	"""Check file name patterns to determine file type."""
+	type_patterns = {
+		"test": r"^tests?/|^testing/|^__tests?__/|^test_.*\.py$|^.*_test\.py$",
+		"docs": r"^docs?/|\.md$|\.rst$|^(README|CHANGELOG|CONTRIBUTING|HISTORY|AUTHORS|SECURITY)(\.[^/]+)?$|^(COPYING|LICENSE)(\.[^/]+)?$|^(api|docs|documentation)/|.*\.docstring$",
+		"style": r"\.(css|scss|sass|less|styl)$|^styles?/|^themes?/|\.editorconfig$|\.prettierrc|\.eslintrc|\.flake8$|\.style\.yapf$|\.isort\.cfg$|setup\.cfg$",
+		"ci": r"^\.github/workflows/|^\.gitlab-ci|\.travis\.yml$|^\.circleci/|^\.azure-pipelines|^\.jenkins|^\.github/actions/|\.pre-commit-config\.yaml$",
+		"build": r"^pyproject\.toml$|^setup\.(py|cfg)$|^requirements/|^requirements.*\.txt$|^poetry\.lock$|^Pipfile(\.lock)?$|^package(-lock)?\.json$|^yarn\.lock$|^Makefile$|^Dockerfile$|^docker-compose\.ya?ml$|^MANIFEST\.in$",
+		"perf": r"^benchmarks?/|^performance/|\.*.profile$|^profiling/|^\.?cache/",
+		"chore": r"^\.env(\.|$)|\.(ini|cfg|conf|json|ya?ml|toml|properties)$|^config/|^settings/|^\.git.*$"
+	}
+	return check_patterns(str(file_path), type_patterns)
+
+
+def check_diff_patterns(diff: str) -> Optional[str]:
+	"""Check diff content patterns to determine file type."""
+	diff_patterns = {
+		"test": r"\bdef test_|\bclass Test|\@pytest|\bunittest|\@test\b",
+		"fix": r"\bfix|\bbug|\bissue|\berror|\bcrash|resolve|closes?\s+#\d+",
+		"refactor": r"\brefactor|\bclean|\bmove|\brename|\brestructure|\brewrite",
+		"perf": r"\boptimiz|\bperformance|\bspeed|\bmemory|\bcpu|\bruntime|\bcache|\bfaster|\bslower",
+		"style": r"\bstyle|\bformat|\blint|\bprettier|\beslint|\bindent|\bspacing"
+	}
+	return check_patterns(diff.lower(), diff_patterns)
+
+
+def check_patterns(text: str, patterns: dict) -> Optional[str]:
+	"""Check if text matches any pattern in the given dictionary."""
+	for type_name, pattern in patterns.items():
+		if re.search(pattern, text, re.I):
+			return type_name
+	return None
 
 def group_related_changes(changes: List[FileChange]) -> List[List[FileChange]]:
     groups = defaultdict(list)
@@ -153,7 +151,7 @@ def model_prompt(prompt: str) -> str:
         console=console,
     ) as progress:
         task = progress.add_task("Waiting for model response...", total=None)
-        
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(get_model_response)
             try:
@@ -182,11 +180,11 @@ def commit_changes(files: List[str], message: str):
         for file_path in files:
             run_git_command(["git", "add", "--", file_path])
             progress.advance(stage_task)
-        
+
         commit_task = progress.add_task("Committing changes...", total=1)
         stdout, stderr, code = run_git_command(["git", "commit", "-m", message])
         progress.advance(commit_task)
-        
+
     if code == 0:
         console.print(f"[green]✔ Successfully committed:[/green] {message}")
     else:
@@ -234,17 +232,17 @@ def get_valid_changes():
     ) as progress:
         analyze_task = progress.add_task("Analyzing files...", total=len(changed_files))
         diff_task = progress.add_task("Getting file diffs...", total=len(changed_files))
-        
+
         for st, fp in changed_files:
             path = Path(fp)
             diff = get_file_diff(fp)
             progress.advance(diff_task)
-            
+
             if diff:
                 file_type = analyze_file_type(path, diff)
                 changes.append(FileChange(path, st, diff, file_type))
             progress.advance(analyze_task)
-    
+
     return changes
 
 
