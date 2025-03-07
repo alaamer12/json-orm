@@ -5,7 +5,6 @@ include CONTRIBUTING.md
 include CoC.md
 include SECURITY.md
 include pyproject.toml
-include setup.cfg
 include jsondb/py.typed
 
 recursive-include jsondb *.py *.pyi *.json
