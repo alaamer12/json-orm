@@ -16,6 +16,12 @@ from concurrent.futures import TimeoutError
 
 console = Console()
 
+PROMPT_THRESHOLD = 80  # lines
+FALLBACK_TIMEOUT = 10  # secs
+MIN_COMPREHENSIVE_LENGTH = 50  # minimum length for comprehensive commit messages
+Attempts = 3 # number of attempts
+
+
 @dataclass
 class FileChange:
     path: Path
@@ -54,52 +60,56 @@ def get_file_diff(file_path: str) -> str:
 
 
 def analyze_file_type(file_path: Path, diff: str) -> str:
-	"""Analyze the file type based on its path and content."""
-	# Check if the file path contains 'scripts' first
-	if "scripts" in file_path.parts:
-		return "chore"
+    """Determine the type of change based on file path and diff content."""
+    type_checks = [
+        ("chore", lambda: "scripts" in file_path.parts),
+        ("test", lambda: is_test_file(file_path)),
+        (check_file_path_patterns(file_path), lambda: True),
+        (check_diff_patterns(diff), lambda: True),
+        ("feat", lambda: True)  # Default case
+    ]
 
-	if is_test_file(file_path):
-		return "test"
-
-	file_type = check_file_path_patterns(file_path)
-	if file_type:
-		return file_type
-
-	diff_type = check_diff_patterns(diff)
-	if diff_type:
-		return diff_type
-
-	return "feat"
+    return next(type for type, condition in type_checks if condition())
 
 
 def is_test_file(file_path: Path) -> bool:
 	"""Check if the file is in a dedicated test directory."""
-	return any(part.lower() in ("tests", "test") for part in file_path.parts)
+	test_indicators = ("tests", "test", "spec", "specs", "pytest", "unittest", "mocks", "fixtures")
+	return any(part.lower() in test_indicators for part in file_path.parts)
 
 
 def check_file_path_patterns(file_path: Path) -> Optional[str]:
 	"""Check file name patterns to determine file type."""
+	# Enhanced patterns based on conventional commits and industry standards
 	type_patterns = {
-		"test": r"^tests?/|^testing/|^__tests?__/|^test_.*\.py$|^.*_test\.py$",
-		"docs": r"^docs?/|\.md$|\.rst$|^(README|CHANGELOG|CONTRIBUTING|HISTORY|AUTHORS|SECURITY)(\.[^/]+)?$|^(COPYING|LICENSE)(\.[^/]+)?$|^(api|docs|documentation)/|.*\.docstring$",
-		"style": r"\.(css|scss|sass|less|styl)$|^styles?/|^themes?/|\.editorconfig$|\.prettierrc|\.eslintrc|\.flake8$|\.style\.yapf$|\.isort\.cfg$|setup\.cfg$",
-		"ci": r"^\.github/workflows/|^\.gitlab-ci|\.travis\.yml$|^\.circleci/|^\.azure-pipelines|^\.jenkins|^\.github/actions/|\.pre-commit-config\.yaml$",
-		"build": r"^pyproject\.toml$|^setup\.(py|cfg)$|^requirements/|^requirements.*\.txt$|^poetry\.lock$|^Pipfile(\.lock)?$|^package(-lock)?\.json$|^yarn\.lock$|^Makefile$|^Dockerfile$|^docker-compose\.ya?ml$|^MANIFEST\.in$",
-		"perf": r"^benchmarks?/|^performance/|\.*.profile$|^profiling/|^\.?cache/",
-		"chore": r"^\.env(\.|$)|\.(ini|cfg|conf|json|ya?ml|toml|properties)$|^config/|^settings/|^\.git.*$"
+		"test": r"^tests?/|^testing/|^__tests?__/|^test_.*\.py$|^.*_test\.py$|^.*\.spec\.[jt]s$|^.*\.test\.[jt]s$",
+		"docs": r"^docs?/|\.md$|\.rst$|\.adoc$|\.txt$|^(README|CHANGELOG|CONTRIBUTING|HISTORY|AUTHORS|SECURITY)(\.[^/]+)?$|^(COPYING|LICENSE)(\.[^/]+)?$|^(api|docs|documentation)/|.*\.docstring$|^jsdoc/|^typedoc/",
+		"style": r"\.(css|scss|sass|less|styl)$|^styles?/|^themes?/|\.editorconfig$|\.prettierrc|\.eslintrc|\.flake8$|\.style\.yapf$|\.isort\.cfg$|setup\.cfg$|^\.stylelintrc|^\.prettierrc|^\.prettier\.config\.[jt]s$",
+		"ci": r"^\.github/workflows/|^\.gitlab-ci|\.travis\.yml$|^\.circleci/|^\.azure-pipelines|^\.jenkins|^\.github/actions/|\.pre-commit-config\.yaml$|^\.gitlab/|^\.buildkite/|^\.drone\.yml$|^\.appveyor\.yml$",
+		"build": r"^pyproject\.toml$|^setup\.(py|cfg)$|^requirements/|^requirements.*\.txt$|^poetry\.lock$|^Pipfile(\.lock)?$|^package(-lock)?\.json$|^yarn\.lock$|^Makefile$|^Dockerfile$|^docker-compose\.ya?ml$|^MANIFEST\.in$|^rollup\.config\.[jt]s$|^webpack\.config\.[jt]s$|^babel\.config\.[jt]s$|^tsconfig\.json$|^vite\.config\.[jt]s$|^\.babelrc$|^\.npmrc$",
+		"perf": r"^benchmarks?/|^performance/|\.*.profile$|^profiling/|^\.?cache/|^\.?benchmark/",
+		"chore": r"^\.env(\.|$)|\.(ini|cfg|conf|json|ya?ml|toml|properties)$|^config/|^settings/|^\.git.*$|^\.husky/|^\.vscode/|^\.idea/|^\.editorconfig$|^\.env\.example$|^\.nvmrc$",
+		"feat": r"^src/|^app/|^lib/|^modules/|^feature/|^features/|^api/|^services/|^controllers/|^routes/|^middleware/|^models/|^schemas/|^types/|^utils/|^helpers/|^core/|^internal/|^pkg/|^cmd/",
+		"fix": r"^hotfix/|^bugfix/|^patch/|^fix/",
+		"refactor": r"^refactor/|^refactoring/|^redesign/",
+		"security": r"^security/|^auth/|^authentication/|^authorization/|^permissions/|^rbac/|^oauth/|^jwt/|^crypto/|^ssl/|^tls/|^ssh/"
 	}
 	return check_patterns(str(file_path), type_patterns)
 
 
 def check_diff_patterns(diff: str) -> Optional[str]:
 	"""Check diff content patterns to determine file type."""
+	# Enhanced patterns for detecting commit types from diff content
 	diff_patterns = {
-		"test": r"\bdef test_|\bclass Test|\@pytest|\bunittest|\@test\b",
-		"fix": r"\bfix|\bbug|\bissue|\berror|\bcrash|resolve|closes?\s+#\d+",
-		"refactor": r"\brefactor|\bclean|\bmove|\brename|\brestructure|\brewrite",
-		"perf": r"\boptimiz|\bperformance|\bspeed|\bmemory|\bcpu|\bruntime|\bcache|\bfaster|\bslower",
-		"style": r"\bstyle|\bformat|\blint|\bprettier|\beslint|\bindent|\bspacing"
+		"test": r"\bdef test_|\bclass Test|\@pytest|\bunittest|\@test\b|\bit\(['\"]\w+['\"]|describe\(['\"]\w+['\"]|\bexpect\(|\bshould\b|\.spec\.|\.test\.|mock|stub|spy|assert|verify",
+		"fix": r"\bfix|\bbug|\bissue|\berror|\bcrash|resolve|closes?\s+#\d+|\bpatch|\bsolve|\baddress|\bfailing|\bbroken|\bregression",
+		"refactor": r"\brefactor|\bclean|\bmove|\brename|\brestructure|\brewrite|\bimprove|\bsimplify|\boptimize|\breorganize|\benhance|\bupdate|\bmodernize|\bsimplify|\streamline",
+		"perf": r"\boptimiz|\bperformance|\bspeed|\bmemory|\bcpu|\bruntime|\bcache|\bfaster|\bslower|\blatency|\bthroughput|\bresponse time|\befficiency|\bbenchmark|\bprofile|\bmeasure|\bmetric|\bmonitoring",
+		"style": r"\bstyle|\bformat|\blint|\bprettier|\beslint|\bindent|\bspacing|\bwhitespace|\btabs|\bspaces|\bsemicolons|\bcommas|\bbraces|\bparens|\bquotes|\bsyntax|\btypo|\bspelling|\bgrammar|\bpunctuation",
+		"feat": r"\badd|\bnew|\bfeature|\bimplement|\bsupport|\bintroduce|\benable|\bcreate|\ballow|\bfunctionality",
+		"docs": r"\bdocument|\bcomment|\bexplain|\bclari|\bupdate readme|\bupdate changelog|\bupdate license|\bupdate contribution|\bjsdoc|\btypedoc|\bdocstring|\bjavadoc|\bapidoc|\bswagger|\bopenapi|\bdocs",
+		"chore": r"\bchore|\bupdate dependencies|\bupgrade|\bdowngrade|\bpackage|\bbump version|\brelease|\btag|\bversion|\bdeployment|\bci|\bcd|\bpipeline|\bworkflow|\bautomation|\bscripting|\bconfiguration|\bsetup|\bmaintenance|\bcleanup|\bupkeep|\borganize|\btrack|\bmonitor",
+		"security": r"\bsecurity|\bvulnerability|\bcve|\bauth|\bauthentication|\bauthorization|\baccess control|\bpermission|\bprivilege|\bvalidation|\bsanitization|\bencryption|\bdecryption|\bhashing|\bcipher|\btoken|\bsession|\bxss|\bsql injection|\bcsrf|\bcors|\bfirewall|\bwaf|\bpen test|\bpenetration test|\baudit|\bscan|\bdetect|\bprotect|\bprevent|\bmitigate|\bremedy|\bfix|\bpatch|\bupdate|\bsecure|\bharden|\bfortify|\bsafeguard|\bshield|\bguard|\bblock|\bfilter|\bscreen|\bcheck|\bverify|\bvalidate|\bconfirm|\bensure|\bensure|\btrustworthy|\breliable|\brobust|\bresilient|\bimmune|\bimpervious|\binvulnerable"
 	}
 	return check_patterns(diff.lower(), diff_patterns)
 
@@ -120,53 +130,151 @@ def group_related_changes(changes: List[FileChange]) -> List[List[FileChange]]:
 
 
 def generate_commit_message(changes: List[FileChange]) -> str:
-	combined_context = "\n".join([f"{change.status} {change.path}" for change in changes])
+    combined_context = create_combined_context(changes)
+    total_diff_lines = calculate_total_diff_lines(changes)
+    is_comprehensive = total_diff_lines >= PROMPT_THRESHOLD
 
-	prompt = f"""
-    Analyze these file changes and generate a conventional commit message:
-    {combined_context}
-    Respond with only expected commit follows best practices, without any introductions or explanations.
+    for _ in range(Attempts):
+        prompt = determine_prompt(combined_context, changes, total_diff_lines)
+        model_message = model_prompt(prompt)
+        
+        if not model_message:
+            return generate_fallback_message(changes)
+        
+        if is_comprehensive and len(model_message) < MIN_COMPREHENSIVE_LENGTH:
+            action = handle_short_comprehensive_message(model_message)
+            if action == "use":
+                return model_message
+            elif action == "retry":
+                continue
+            else:
+                return generate_fallback_message(changes)
+        
+        return model_message
+
+    return generate_fallback_message(changes)
+
+def create_combined_context(changes: List[FileChange]) -> str:
+    return "\n".join([f"{change.status} {change.path}" for change in changes])
+
+def calculate_total_diff_lines(changes: List[FileChange]) -> int:
+    return sum(len(change.diff.strip().splitlines()) for change in changes)
+
+def handle_short_comprehensive_message(model_message: str) -> str:
+    console.print("\n[yellow]Warning: Generated commit message seems too brief for a large change.[/yellow]")
+    console.print(f"Generated message: [cyan]{model_message}[/cyan]\n")
+    
+    table = Table(show_header=False, style="blue")
+    table.add_row("[1] Use this message anyway")
+    table.add_row("[2] Try generating again")
+    table.add_row("[3] Use auto-generated message")
+    console.print(table)
+    
+    choice = input("\nChoose an option (1-3): ").strip()
+    
+    if choice == "1":
+        return "use"
+    elif choice == "2":
+        return "retry"
+    else:
+        return "fallback"
+
+def generate_fallback_message(changes: List[FileChange]) -> str:
+    return f"{changes[0].type}: update {' '.join(str(c.path.name) for c in changes)}"
+
+
+def generate_diff_summary(changes):
+	return "\n".join([
+		f"File: {change.path}\nStatus: {change.status}\nChanges:\n{change.diff}\n"
+		for change in changes
+	])
+def determine_prompt(combined_text: str, changes: List[FileChange], diff_lines: int) -> str:
+    # For small changes (less than 50 lines), use a simple inline commit message
+    if diff_lines < PROMPT_THRESHOLD:
+        return generate_simple_prompt(combined_text)
+
+    # For larger changes, create a comprehensive commit message with details
+    diffs_summary = generate_diff_summary(changes)
+
+    return generate_comprehensive_prompt(combined_text, diffs_summary)
+
+def generate_simple_prompt(combined_text):
+	return f"""
+        Analyze these file changes and generate a conventional commit message:
+        {combined_text}
+        Respond with only a single-line commit message following conventional commits format.
+        Keep it brief and focused on the main change.
+        """
+
+def generate_comprehensive_prompt(combined_text, diffs_summary):
+	return f"""
+    Analyze these file changes and generate a detailed conventional commit message:
+
+    Changed Files:
+    {combined_text}
+
+    Detailed Changes:
+    {diffs_summary}
+
+    Generate a commit message in this format:
+    <type>[optional scope]: <description>
+
+    [optional body]
+    - Bullet points summarizing main changes
+    - Include any breaking changes
+
+    [optional footer]
+
+    Rules:
+    1. First line should be a concise summary (50-72 chars)
+    2. Use present tense ("add" not "added")
+    3. Include relevant scope if changes are focused
+    4. Add detailed bullet points for significant changes
+    5. Mention breaking changes if any
+    6. Reference issues/PRs if applicable
+
+    Respond with ONLY the commit message, no explanations.
     """
 
-	model_message = model_prompt(prompt)
-	if model_message:
-		return model_message
-
-	return f"{changes[0].type}: update {' '.join(str(c.path.name) for c in changes)}"
-
-
 def model_prompt(prompt: str) -> str:
-    def get_model_response():
-        return g4f.ChatCompletion.create(
-            model=g4f.models.gpt_4o_mini,
-            messages=[
-                {"role": "system", "content": "Follow instructions precisely and respond concisely."},
-                {"role": "user", "content": prompt}
-            ],
-        )
+    return execute_with_progress(get_model_response, prompt)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
+def get_model_response(prompt: str) -> str:
+    return g4f.ChatCompletion.create(
+        model=g4f.models.gpt_4o_mini,
+        messages=[
+            {"role": "system", "content": "Follow instructions precisely and respond concisely."},
+            {"role": "user", "content": prompt}
+        ],
+    )
+
+def execute_with_progress(func, *args):
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Waiting for model response...", total=None)
+        return execute_with_timeout(func, progress, task, *args)
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(get_model_response)
-            try:
-                response = future.result(timeout=10)  # 5 second timeout
-                progress.remove_task(task)
-                message = response.strip().split("\n")[0]
-                console.print(message)
-                return message
-            except (TimeoutError, Exception) as e:
-                progress.remove_task(task)
-                if isinstance(e, TimeoutError):
-                    console.print("[yellow]Model response timed out, using fallback message[/yellow]")
-                else:
-                    console.print(f"[yellow]Error in model response, using fallback message: {str(e)}[/yellow]")
-                return None
+def execute_with_timeout(func, progress, task, *args, timeout=FALLBACK_TIMEOUT):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(func, *args)
+        try:
+            response = future.result(timeout=timeout)
+            return process_response(response)
+        except (TimeoutError, Exception) as e:
+            return handle_error(e)
+        finally:
+            progress.remove_task(task)
+
+def process_response(response: str) -> str:
+    message = response.strip().split("\n")[0]
+    console.print(message)
+    return message
+
+def handle_error(error: Exception) -> None:
+    if isinstance(error, TimeoutError):
+        console.print("[yellow]Model response timed out, using fallback message[/yellow]")
+    else:
+        console.print(f"[yellow]Error in model response, using fallback message: {str(error)}[/yellow]")
+    return None
 
 
 def commit_changes(files: List[str], message: str):
@@ -176,15 +284,25 @@ def commit_changes(files: List[str], message: str):
         TaskProgressColumn(),
         console=console
     ) as progress:
-        stage_task = progress.add_task("Staging files...", total=len(files))
-        for file_path in files:
-            run_git_command(["git", "add", "--", file_path])
-            progress.advance(stage_task)
+        stage_files(files, progress)
+        commit_result = perform_commit(message, progress)
 
-        commit_task = progress.add_task("Committing changes...", total=1)
-        stdout, stderr, code = run_git_command(["git", "commit", "-m", message])
-        progress.advance(commit_task)
+    display_commit_result(commit_result, message)
 
+def stage_files(files: List[str], progress: Progress):
+    stage_task = progress.add_task("Staging files...", total=len(files))
+    for file_path in files:
+        run_git_command(["git", "add", "--", file_path])
+        progress.advance(stage_task)
+
+def perform_commit(message: str, progress: Progress) -> Tuple[str, int]:
+    commit_task = progress.add_task("Committing changes...", total=1)
+    _, stderr, code = run_git_command(["git", "commit", "-m", message])
+    progress.advance(commit_task)
+    return stderr, code
+
+def display_commit_result(result: Tuple[str, int], message: str):
+    stderr, code = result
     if code == 0:
         console.print(f"[green]✔ Successfully committed:[/green] {message}")
     else:
