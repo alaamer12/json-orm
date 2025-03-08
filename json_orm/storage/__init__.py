@@ -1,4 +1,4 @@
-"""Storage module for JsonDB."""
+"""Storage module for Json-ORM."""
 
 from .jsd import JSDFile, JSDError
 

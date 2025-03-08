@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "jsondb"
+name = "json-orm"
 version = "0.1.0"
 description = "A zero-configuration, SQLModel-compatible JSON database for rapid development"
 authors = ["Alaamer <ahmedmuhmmed239@gmail.com>"]
@@ -11,7 +11,7 @@ license = "MIT"
 readme = "README.md"
 homepage = "https://github.com/alaamer12/pyjsondb"
 repository = "https://github.com/alaamer12/pyjsondb"
-documentation = "https://jsondb.readthedocs.io/en/latest/"
+documentation = "https://json-orm.readthedocs.io/en/latest/"
 keywords = ["database", "json", "orm", "sqlmodel", "rapid-development", "prototyping", "sqlalchemy"]
 classifiers = [
     # Development Status
@@ -68,7 +68,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
 ]
 packages = [
-    { include = "jsondb" }
+    { include = "json-orm" }
 ]
 
 [tool.poetry.dependencies]
@@ -128,13 +128,13 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--strict-markers --cov=jsondb --cov-report=term-missing --cov-report=xml --cov-report=html"
+addopts = "--strict-markers --cov=json-orm --cov-report=term-missing --cov-report=xml --cov-report=html"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 branch = true
-source = ["jsondb"]
+source = ["json-orm"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -199,7 +199,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.isort]
-known-first-party = ["jsondb"]
+known-first-party = ["json-orm"]
 combine-as-imports = true
 
 [tool.ruff.flake8-tidy-imports]

@@ -2,7 +2,7 @@ MIT License
 
 Copyright (c) 2025 alaamer12 <ahmedmuhmmed239@gmail.com>
 
-JsonDB: A Comprehensive Python Utility Package
+Json-ORM: A Comprehensive Python Utility Package
 https://github.com/alaamer12/pyjsondb
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -28,7 +28,7 @@ SOFTWARE.
 
 Additional Notes:
 ----------------
-1. This license applies to all files in the JsonDB package, including but not
+1. This license applies to all files in the Json-ORM package, including but not
    limited to:
    - Source code
    - Documentation
@@ -36,7 +36,7 @@ Additional Notes:
    - Configuration files
    - Test files
 
-2. Third-party dependencies used by JsonDB are subject to their respective
+2. Third-party dependencies used by Json-ORM are subject to their respective
    licenses. Users should refer to each dependency's license terms when using
    those components.
 
@@ -44,7 +44,7 @@ Additional Notes:
    - Email: ahmedmuhmmed239@gmail.com
    - GitHub: https://github.com/alaamer12/pyjsondb
 
-4. Contributions to JsonDB are welcome and will be subject to this same
+4. Contributions to Json-ORM are welcome and will be subject to this same
    license unless explicitly stated otherwise.
 
 Version History:

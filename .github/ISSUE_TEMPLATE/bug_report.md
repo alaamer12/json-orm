@@ -28,7 +28,7 @@ A clear and concise description of what you expected to happen.
 **Environment:**
  - OS: [e.g. Windows 10]
  - Python version: [e.g. 3.9.5]
- - JsonDB version: [e.g. 0.1.0]
+ - Json-ORM version: [e.g. 0.1.0]
  - SQLModel version: [e.g. 0.0.8]
 
 **Additional context**

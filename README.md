@@ -1,4 +1,4 @@
-# JsonDB
+# Json-ORM
 
 A zero-configuration, SQLModel-compatible JSON database for rapid development and prototyping.
 
@@ -22,13 +22,13 @@ A zero-configuration, SQLModel-compatible JSON database for rapid development an
 ## 📦 Installation
 
 ```bash
-pip install jsondb
+pip install json-orm
 ```
 
 ## 🏃 Quick Start
 
 ```python
-from jsondb import Database, Model, Field, select
+from json-orm import Database, Model, Field, select
 from typing import Optional, List
 from datetime import datetime
 
@@ -157,5 +157,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📬 Contact
 
-- Issues: [GitHub Issues](https://github.com/yourusername/jsondb/issues)
-- Questions: [GitHub Discussions](https://github.com/yourusername/jsondb/discussions)
+- Issues: [GitHub Issues](https://github.com/yourusername/json-orm/issues)
+- Questions: [GitHub Discussions](https://github.com/yourusername/json-orm/discussions)

@@ -23,7 +23,7 @@ client = Client()
 PROMPT_THRESHOLD = 80  # lines
 FALLBACK_TIMEOUT = 10  # secs
 MIN_COMPREHENSIVE_LENGTH = 50  # minimum length for comprehensive commit messages
-Attempts = 3 # number of attempts
+ATTEMPT = 3 # number of attempts
 MODEL_TYPE = Union[g4f.Model, g4f.models, str]
 MODEL: MODEL_TYPE = g4f.models.gpt_4o_mini
 
@@ -144,10 +144,10 @@ def generate_commit_message(changes: List[FileChange]) -> str:
     total_diff_lines = calculate_total_diff_lines(changes)
     is_comprehensive = total_diff_lines >= PROMPT_THRESHOLD
     diffs_summary = generate_diff_summary(changes) if is_comprehensive else ""
-    
+
     tool_calls = determine_tool_calls(is_comprehensive, combined_context, diffs_summary)
 
-    for _ in range(Attempts):
+    for _ in range(ATTEMPT):
         message = attempt_generate_message(combined_context, tool_calls, changes, total_diff_lines)
         if not message:
             continue
@@ -176,7 +176,7 @@ def attempt_generate_message(combined_context: str, tool_calls: Dict[str, Any], 
 def handle_comprehensive_message(message: Optional[str], changes: List[FileChange]) -> Union[str, Literal["retry"], None]:
     if not message:
         return None
-        
+
     if len(message) < MIN_COMPREHENSIVE_LENGTH:
         action = handle_short_comprehensive_message(message)
         if action == "use":
