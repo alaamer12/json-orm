@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from jsondb import (
+from json-orm import (
     Model, 
     Field, 
     select, 

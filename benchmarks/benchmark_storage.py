@@ -11,7 +11,7 @@ import orjson
 from faker import Faker
 from tqdm.auto import tqdm
 
-from jsondb.storage import JSDFile
+from json-orm.storage import JSDFile
 
 fake = Faker()
 
